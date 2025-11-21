@@ -33,3 +33,9 @@ AS (
 
 -- Verifikasi service sudah jalan
 SHOW CORTEX SEARCH SERVICES;
+
+-- Suspend the service so it starts indexing and updating
+ALTER CORTEX SEARCH SERVICE SUPPORT_KNOWLEDGE_BASE SUSPEND;
+
+-- Resume the service so it starts indexing and updating
+ALTER CORTEX SEARCH SERVICE SUPPORT_KNOWLEDGE_BASE RESUME;
