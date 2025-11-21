@@ -17,14 +17,14 @@ It includes a **data pipeline**, **data masking scripts**, **AI/ML SQL queries**
 
 ## Folder Structure
 
-Agentic AI/                # Python scripts for building a chatbot / agent
-1_INITIAL.sql               # Initial database setup
-2_BRONZE.sql                # Bronze layer transformation scripts
-3_SILVER.sql                # Silver layer transformation scripts
-4_GOLD.sql                  # Gold layer transformation scripts
-5_DNF_AND_DATA MASKING.sql  # Scripts for data masking & anonymization
-6_AI.sql                    # AI-related scripts / queries
-README.md                   # Project documentation
+- Agentic AI/                # Python scripts for building a chatbot / agent
+- 1_INITIAL.sql               # Initial database setup
+- 2_BRONZE.sql                # Bronze layer transformation scripts
+- 3_SILVER.sql                # Silver layer transformation scripts
+- 4_GOLD.sql                  # Gold layer transformation scripts
+- 5_DNF_AND_DATA MASKING.sql  # Scripts for data masking & anonymization
+- 6_AI.sql                    # AI-related scripts / queries
+- README.md                   # Project documentation
 
 
 ---
@@ -43,7 +43,7 @@ The SQL scripts implement a **multi-layer data pipeline**:
 **Execution order:**  
 ```sql
 1_INITIAL.sql → 2_BRONZE.sql → 3_SILVER.sql → 4_GOLD.sql → 5_DNF_AND_DATA MASKING.sql → 6_AI.sql
-
+```
 ---
 
 ## Agentic Chatbot (Python)
@@ -64,34 +64,37 @@ The Agentic AI folder contains:
 
 1️⃣ SQL Pipeline
 
-Connect to your Snowflake account
+- Connect to your Snowflake account
 
-Execute scripts in order (see above)
+- Execute scripts in order (see above)
 
 2️⃣ Agentic Chatbot
 
-Make sure Snowflake Streamlit is enabled
+- Make sure Snowflake Streamlit is enabled
 
-Ensure the semantic YAML model is uploaded to a Snowflake stage
+- Ensure the semantic YAML model is uploaded to a Snowflake stage
 
-Install required Python packages:
+- Install required Python packages:
 
+```sql
 - pip install streamlit snowflake-snowpark-python llama-index openai
-
+```
 
 Deploy or run chatbot_app.py in Streamlit:
 
 streamlit run Agentic\ AI/chatbot_app.py
 
 
-Ask natural language questions like 
-
-- What are the total sales this month?
-
-- How many new customers did we get in the last 90 days?
-
-- Who are the top 10 customers by account balance?
-
+## Ask natural language questions like 
+```sql
+What are the total sales this month?
+```
+```sql
+How many new customers did we get in the last 90 days?
+```
+```sql
+Who are the top 10 customers by account balance?
+```
 
 — the chatbot will generate SQL queries and return results from Snowflake
 
@@ -108,13 +111,15 @@ Data masking scripts ensure sensitive data is anonymized
 ## Architecture Diagram
 
 flowchart TD
-    A[Raw Tables (Initial Layer)] --> B[Bronze Layer]
-    B --> C[Silver Layer]
-    C --> D[Gold Layer]
-    D --> E[Semantic YAML Model]
-    E --> F[Streamlit Chatbot]
-    F --> G[Snowflake SQL Execution]
-    G --> H[Query Results Returned]
+- A[Raw Tables (Initial Layer)] --> B[Bronze Layer]
+- B --> C[Silver Layer]
+- C --> D[Gold Layer]
+- D --> E[Semantic YAML Model]
+- E --> F[Streamlit Chatbot]
+- F --> G[Snowflake SQL Execution]
+- G --> H[Query Results Returned]
+
+---
 
 - Raw data flows through Bronze → Silver → Gold layers
 
