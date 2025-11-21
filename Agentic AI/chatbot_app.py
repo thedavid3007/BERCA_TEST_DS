@@ -1,6 +1,24 @@
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
 
+# --- Table Mapping ---
+TABLE_MAPPING = {
+    "sales_forecast": {"schema": "GOLD", "table": "AI_SALES_PREDICTION"},
+    "daily_sales": {"schema": "SILVER", "table": "AGG_DAILY_SALES_REGION"},
+    "churn_alert": {"schema": "GOLD", "table": "V_CHURN_RISK_ALERT"},
+}
+
+# --- Helper Function ---
+def get_table_name(logical_name):
+    """
+    Returns the fully qualified table name for a logical table name.
+    Example: 'sales_forecast' -> 'GOLD.AI_SALES_PREDICTION'
+    """
+    mapping = TABLE_MAPPING.get(logical_name)
+    if not mapping:
+        raise ValueError(f"Table mapping not found for '{logical_name}'")
+    return f"{mapping['schema']}.{mapping['table']}"
+
 # Get the active Snowpark session
 session = get_active_session()
 
