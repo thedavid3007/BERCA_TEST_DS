@@ -1,0 +1,185 @@
+USE ROLE SYSADMIN;
+USE WAREHOUSE BERCA_WH;
+USE DATABASE BERCA_TEST_DS;
+USE SCHEMA SILVER;
+
+-- Create a stream on the BRONZE.LINEITEM table to track changes for incremental loads
+CREATE OR REPLACE STREAM BRONZE.LINEITEM_STREAM ON TABLE BRONZE.LINEITEM;
+
+
+--------------------------------------------------------------------------------
+-- Staging Table for Silver Layer (Fact and Dimensions)
+--------------------------------------------------------------------------------
+-- A temporary stage to hold clean, conformed data before inserting into DIM/FACT
+CREATE OR REPLACE TABLE STG_LINEITEM (
+    ORDER_KEY NUMBER,
+    CUSTOMER_KEY NUMBER,
+    PART_KEY NUMBER,
+    SUPPLIER_KEY NUMBER,
+    ORDER_DATE DATE,
+    SHIP_DATE DATE,
+    RETURN_FLAG VARCHAR(1),
+    QUANTITY NUMBER,
+    EXTENDED_PRICE NUMBER(12,2),
+    DISCOUNT NUMBER(12,2),
+    TAX NUMBER(12,2),
+    NET_PRICE NUMBER(12,2), -- Calculated metric
+    SALES_AMOUNT NUMBER(12,2) -- Calculated metric
+);
+
+--------------------------------------------------------------------------------
+-- 1. DIMENSION TABLES
+--------------------------------------------------------------------------------
+
+-- Create DIM_CUSTOMER by joining BRONZE.CUSTOMER and BRONZE.NATION/REGION
+CREATE OR REPLACE TABLE DIM_CUSTOMER AS
+SELECT
+    C.C_CUSTKEY AS CUSTOMER_KEY,
+    C.C_NAME AS CUSTOMER_NAME,
+    C.C_ADDRESS AS CUSTOMER_ADDRESS,
+    C.C_PHONE AS CUSTOMER_PHONE,
+    C.C_ACCTBAL AS CUSTOMER_ACCOUNT_BALANCE,
+    C.C_MKTSEGMENT AS MARKET_SEGMENT,
+    N.N_NAME AS NATION_NAME,
+    R.R_NAME AS REGION_NAME
+FROM
+    BRONZE.CUSTOMER C
+INNER JOIN
+    BRONZE.NATION N ON C.C_NATIONKEY = N.N_NATIONKEY
+INNER JOIN
+    BRONZE.REGION R ON N.N_REGIONKEY = R.R_REGIONKEY;
+
+
+-- Create DIM_PART by selecting from BRONZE.PART and adding a surrogate key if needed (using P_PARTKEY for now)
+CREATE OR REPLACE TABLE DIM_PART AS
+SELECT
+    P_PARTKEY AS PART_KEY,
+    P_NAME AS PART_NAME,
+    P_MFGR AS MANUFACTURER,
+    P_BRAND AS BRAND,
+    P_TYPE AS PART_TYPE,
+    P_SIZE AS PART_SIZE,
+    P_RETAILPRICE AS RETAIL_PRICE
+FROM
+    BRONZE.PART;
+
+
+-- Create DIM_SUPPLIER by joining BRONZE.SUPPLIER and BRONZE.NATION/REGION
+CREATE OR REPLACE TABLE DIM_SUPPLIER AS
+SELECT
+    S.S_SUPPKEY AS SUPPLIER_KEY,
+    S.S_NAME AS SUPPLIER_NAME,
+    S.S_ADDRESS AS SUPPLIER_ADDRESS,
+    S.S_PHONE AS SUPPLIER_PHONE,
+    S.S_ACCTBAL AS SUPPLIER_ACCOUNT_BALANCE,
+    N.N_NAME AS NATION_NAME,
+    R.R_NAME AS REGION_NAME
+FROM
+    BRONZE.SUPPLIER S
+INNER JOIN
+    BRONZE.NATION N ON S.S_NATIONKEY = N.N_NATIONKEY
+INNER JOIN
+    BRONZE.REGION R ON N.N_REGIONKEY = R.R_REGIONKEY;
+
+
+-- Create a basic DIM_DATE table
+CREATE OR REPLACE TABLE DIM_DATE AS
+SELECT
+    DATEADD(day, SEQ4(), '2022-01-01') AS DATE_KEY,
+    YEAR(DATE_KEY) AS YEAR,
+    MONTH(DATE_KEY) AS MONTH,
+    DAY(DATE_KEY) AS DAY,
+    DAYOFWEEK(DATE_KEY) AS DAY_OF_WEEK,
+    QUARTER(DATE_KEY) AS QUARTER,
+    WEEKOFYEAR(DATE_KEY) AS WEEK_OF_YEAR,
+    DAYOFYEAR(DATE_KEY) AS DAY_OF_YEAR
+FROM
+    TABLE(GENERATOR(ROWCOUNT => 1826)) -- 5 years of dates
+ORDER BY 1;
+
+
+--------------------------------------------------------------------------------
+-- 2. FACT TABLE
+--------------------------------------------------------------------------------
+
+-- Create FACT_SALES table
+CREATE OR REPLACE TABLE FACT_SALES (
+    ORDER_KEY NUMBER,
+    CUSTOMER_KEY NUMBER,
+    PART_KEY NUMBER,
+    SUPPLIER_KEY NUMBER,
+    ORDER_DATE_KEY DATE,
+    SHIP_DATE_KEY DATE,
+    RETURN_FLAG VARCHAR(1),
+    QUANTITY NUMBER,
+    EXTENDED_PRICE NUMBER(12,2),
+    DISCOUNT NUMBER(12,2),
+    TAX NUMBER(12,2),
+    NET_PRICE NUMBER(12,2),
+    SALES_AMOUNT NUMBER(12,2), -- Final sale amount
+    LOAD_TIMESTAMP TIMESTAMP_NTZ(9)
+);
+
+-- Initial load of FACT_SALES from BRONZE tables
+INSERT INTO FACT_SALES
+SELECT
+    L.L_ORDERKEY,
+    O.O_CUSTKEY,
+    L.L_PARTKEY,
+    L.L_SUPPKEY,
+    O.O_ORDERDATE,
+    L.L_SHIPDATE,
+    L.L_RETURNFLAG,
+    L.L_QUANTITY,
+    L.L_EXTENDEDPRICE,
+    L.L_DISCOUNT,
+    L.L_TAX,
+    L.L_EXTENDEDPRICE * (1 - L.L_DISCOUNT) AS NET_PRICE,
+    L.L_EXTENDEDPRICE * (1 - L.L_DISCOUNT) * (1 + L.L_TAX) AS SALES_AMOUNT,
+    CURRENT_TIMESTAMP() AS LOAD_TIMESTAMP
+FROM
+    BRONZE.LINEITEM L
+JOIN
+    BRONZE.ORDERS O ON L.L_ORDERKEY = O.O_ORDERKEY;
+
+
+--------------------------------------------------------------------------------
+-- 3. SNOWFLAKE TASK: Bronze to Silver Automation
+--------------------------------------------------------------------------------
+
+-- Create a task to automate the incremental loading of FACT_SALES
+-- It runs every 5 minutes and only processes new/changed records in LINEITEM_STREAM
+
+CREATE OR REPLACE TASK BRONZE_TO_SILVER_SALES
+  WAREHOUSE = BERCA_WH
+  SCHEDULE = '5 MINUTE'
+  WHEN SYSTEM$STREAM_HAS_DATA('BRONZE.LINEITEM_STREAM')
+AS
+INSERT INTO FACT_SALES
+SELECT
+    L.L_ORDERKEY,
+    O.O_CUSTKEY,
+    L.L_PARTKEY,
+    L.L_SUPPKEY,
+    O.O_ORDERDATE,
+    L.L_SHIPDATE,
+    L.L_RETURNFLAG,
+    L.L_QUANTITY,
+    L.L_EXTENDEDPRICE,
+    L.L_DISCOUNT,
+    L.L_TAX,
+    L.L_EXTENDEDPRICE * (1 - L.L_DISCOUNT) AS NET_PRICE,
+    L.L_EXTENDEDPRICE * (1 - L.L_DISCOUNT) * (1 + L.L_TAX) AS SALES_AMOUNT,
+    CURRENT_TIMESTAMP() AS LOAD_TIMESTAMP
+FROM
+    BRONZE.LINEITEM_STREAM L -- Use the stream for incremental data
+JOIN
+    BRONZE.ORDERS O ON L.L_ORDERKEY = O.O_ORDERKEY
+WHERE
+    METADATA$ACTION = 'INSERT' -- Only process inserts for this simple fact table
+    AND METADATA$ISUPDATE = FALSE;
+
+-- Activate the task
+ALTER TASK BRONZE_TO_SILVER_SALES RESUME;
+
+SELECT * FROM DIM_CUSTOMER LIMIT 10;
